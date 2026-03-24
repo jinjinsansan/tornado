@@ -7,6 +7,7 @@ Yields chunks as the conversation progresses:
   {"type": "done", "text": ..., "tools_used": [...], "quick_replies": [...]}
 """
 
+import json
 import logging
 
 from agent.engine import (
@@ -102,6 +103,8 @@ def run_agent(
     """
     system = build_system_prompt()
     tools_used: list[str] = []
+    last_ticket: dict | None = None
+    last_scenarios: dict | None = None
 
     yield {"type": "thinking"}
 
@@ -123,6 +126,8 @@ def run_agent(
                 "tools_used": tools_used,
                 "quick_replies": get_quick_replies(tools_used),
                 "history": history,
+                "ticket": last_ticket,
+                "scenarios": last_scenarios,
             }
             return
 
@@ -143,6 +148,8 @@ def run_agent(
                 "tools_used": tools_used,
                 "quick_replies": get_quick_replies(tools_used),
                 "history": history,
+                "ticket": last_ticket,
+                "scenarios": last_scenarios,
             }
             return
 
@@ -162,6 +169,14 @@ def run_agent(
             yield {"type": "tool", "name": tool_name, "label": label}
 
             result = execute_tool(tool_name, tb.input)
+            try:
+                parsed = json.loads(result) if isinstance(result, str) else None
+                if tool_name == "generate_tickets" and isinstance(parsed, dict) and parsed.get("tickets"):
+                    last_ticket = parsed
+                elif tool_name == "generate_scenarios" and isinstance(parsed, dict) and parsed.get("main"):
+                    last_scenarios = parsed
+            except Exception:
+                pass
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tb.id,
@@ -180,4 +195,6 @@ def run_agent(
         "tools_used": tools_used,
         "quick_replies": get_quick_replies(tools_used),
         "history": history,
+        "ticket": last_ticket,
+        "scenarios": last_scenarios,
     }

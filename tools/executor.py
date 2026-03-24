@@ -227,21 +227,22 @@ def _build_horse_data(entries: dict, predictions: dict | None) -> list[dict]:
     return result
 
 
-def _get_enriched_races() -> list[dict]:
+def _get_enriched_races(refresh: bool = False) -> list[dict]:
     """Get WIN5 races enriched with entries, predictions, and volatility."""
     global _win5_cache
 
     # Check cache
-    if (_win5_cache
+    if (not refresh and _win5_cache
         and _win5_cache.get("races")
         and time.time() - _win5_cache.get("fetched_at", 0) < _WIN5_CACHE_TTL):
         return _win5_cache["races"]
 
     # Prefer Supabase cache (plan-aligned)
-    cached = _get_cached_races_from_supabase(_next_sunday_yyyymmdd())
-    if cached:
-        _win5_cache = {"races": cached, "fetched_at": time.time()}
-        return cached
+    if not refresh:
+        cached = _get_cached_races_from_supabase(_next_sunday_yyyymmdd())
+        if cached:
+            _win5_cache = {"races": cached, "fetched_at": time.time()}
+            return cached
 
     # Fetch WIN5 target races
     raw_races = fetch_win5_races()

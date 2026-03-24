@@ -72,6 +72,8 @@ def chat():
         nonlocal history
         final_text = ""
         quick_replies = []
+        ticket = None
+        scenarios = None
 
         for chunk in run_agent(user_message=message, history=history):
             chunk_type = chunk.get("type")
@@ -89,12 +91,14 @@ def chat():
             elif chunk_type == "done":
                 history = chunk.get("history", history)
                 quick_replies = chunk.get("quick_replies", [])
+                ticket = chunk.get("ticket")
+                scenarios = chunk.get("scenarios")
 
         # Save session with updated history (keep last 16 messages)
         session["history"] = history[-16:]
         _save_session(sid, session)
 
-        yield f"data: {json.dumps({'type': 'done', 'session_id': sid, 'quick_replies': quick_replies}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'session_id': sid, 'quick_replies': quick_replies, 'ticket': ticket, 'scenarios': scenarios}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return Response(generate(), mimetype="text/event-stream")

@@ -179,6 +179,47 @@ def get_recent_results(limit: int = 10) -> list[dict]:
     return res.data or []
 
 
+def get_week_races_with_scores(date: str) -> list[dict]:
+    """Get 5 races for date and attach horse scores."""
+    sb = get_client()
+    races_res = sb.table("win5_races").select("*").eq("date", date).order("race_order").execute()
+    races = races_res.data or []
+    if len(races) != 5:
+        return []
+
+    enriched = []
+    for r in races:
+        scores = []
+        try:
+            scores_res = sb.table("win5_horse_scores") \
+                .select("*") \
+                .eq("win5_race_id", r["id"]) \
+                .order("horse_number") \
+                .execute()
+            scores = scores_res.data or []
+        except Exception:
+            scores = []
+
+        enriched.append({
+            "race_order": r.get("race_order"),
+            "race_id": r.get("race_id"),
+            "venue": r.get("venue"),
+            "race_number": r.get("race_number"),
+            "race_name": r.get("race_name", ""),
+            "distance": r.get("distance", ""),
+            "field_size": r.get("field_size", 0),
+            "volatility_rank": r.get("volatility_rank", 3),
+            "horses": scores,
+        })
+
+    return enriched
+
+
+def get_week_result(date: str) -> dict | None:
+    """Get result row for a date."""
+    return get_win5_result(date)
+
+
 # ---------------------------------------------------------------------------
 # User History
 # ---------------------------------------------------------------------------

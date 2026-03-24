@@ -12,6 +12,15 @@ CREATE TABLE users (
     last_active_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 招待コード（事前発行してログインに使用）
+CREATE TABLE invite_codes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT UNIQUE NOT NULL,
+    used_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- WIN5対象レース（毎週更新）
 CREATE TABLE win5_races (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -89,6 +98,7 @@ CREATE INDEX idx_win5_user_history_user ON win5_user_history(user_id);
 
 -- RLS有効化
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE invite_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE win5_races ENABLE ROW LEVEL SECURITY;
 ALTER TABLE win5_horse_scores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE win5_tickets ENABLE ROW LEVEL SECURITY;
@@ -97,6 +107,7 @@ ALTER TABLE win5_user_history ENABLE ROW LEVEL SECURITY;
 
 -- サービスロールは全テーブルフルアクセス
 CREATE POLICY "Service role full access" ON users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Service role full access" ON invite_codes FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Service role full access" ON win5_races FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Service role full access" ON win5_horse_scores FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Service role full access" ON win5_tickets FOR ALL USING (true) WITH CHECK (true);

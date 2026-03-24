@@ -2,6 +2,7 @@
 
 import logging
 import re
+import json
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 WIN5_URL = "https://race.netkeiba.com/top/win5.html"
 RACE_CARD_URL = "https://race.netkeiba.com/race/shutuba.html?race_id={race_id}"
+ODDS_API_URL = "https://race.netkeiba.com/api/api_get_jra_odds.html?race_id={race_id}&type=1"
 
 
 def fetch_win5_races(date: str = "") -> list[dict]:
@@ -126,6 +128,66 @@ def fetch_win5_carryover() -> dict:
         return {"carryover": 0, "has_carryover": False}
 
 
+def fetch_race_odds(race_id: str) -> dict[int, dict]:
+    """Fetch odds data via netkeiba API (when available).
+
+    Returns:
+        {horse_number: {"odds": float, "popularity_rank": int}}
+    """
+    url = ODDS_API_URL.format(race_id=race_id)
+    try:
+        resp = requests.get(url, timeout=10, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        if resp.status_code != 200:
+            return {}
+        payload = resp.json()
+    except Exception:
+        return {}
+
+    data = payload.get("data") if isinstance(payload, dict) else ""
+    if not data:
+        return {}
+
+    # Sometimes this API returns HTML snippet in "data"
+    mapping: dict[int, dict] = {}
+    try:
+        # If JSON string
+        if isinstance(data, str) and data.strip().startswith(("{", "[")):
+            parsed = json.loads(data)
+            # unknown schema; best-effort parse
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    if str(k).isdigit() and isinstance(v, dict):
+                        hn = int(k)
+                        odds = float(v.get("odds", 0) or 0)
+                        pop = int(v.get("popular", 0) or v.get("popularity_rank", 0) or 0)
+                        if odds > 0:
+                            mapping[hn] = {"odds": odds, "popularity_rank": pop}
+            return mapping
+    except Exception:
+        pass
+
+    try:
+        soup = BeautifulSoup(data, "lxml")
+        # Heuristic: rows often carry umaban in id like tr_13, and odds appear as text within
+        for tr in soup.select("tr[id^='tr_']"):
+            m = re.match(r"tr_(\\d+)$", tr.get("id", ""))
+            if not m:
+                continue
+            hn = int(m.group(1))
+            txt = tr.get_text(" ", strip=True)
+            # Find first float-like token (odds)
+            m2 = re.search(r"(\\d+\\.\\d+)", txt)
+            odds = float(m2.group(1)) if m2 else 0.0
+            if odds <= 0:
+                continue
+            mapping[hn] = {"odds": odds, "popularity_rank": 0}
+        return mapping
+    except Exception:
+        return {}
+
+
 def fetch_race_entries(race_id: str) -> dict | None:
     """Fetch race entries (horse list) from netkeiba shutuba page.
 
@@ -204,6 +266,17 @@ def fetch_race_entries(race_id: str) -> dict | None:
 
     if not entries:
         return None
+
+    # Try fill odds/popularity via API if missing
+    if any((e.get("odds", 0) or 0) <= 0 for e in entries):
+        odds_map = fetch_race_odds(race_id)
+        if odds_map:
+            for e in entries:
+                hn = e.get("horse_number")
+                if hn in odds_map and ((e.get("odds", 0) or 0) <= 0):
+                    e["odds"] = odds_map[hn].get("odds", e.get("odds", 0))
+                if hn in odds_map and ((e.get("popularity_rank", 0) or 0) <= 0):
+                    e["popularity_rank"] = odds_map[hn].get("popularity_rank", e.get("popularity_rank", 0))
 
     # Stabilize ordering
     entries.sort(key=lambda x: x.get("horse_number", 0))
