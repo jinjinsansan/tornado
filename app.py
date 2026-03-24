@@ -9,6 +9,7 @@ from flask_cors import CORS
 from config import CORS_ORIGINS
 from api.web_chat import bp as web_chat_bp
 from api.auth import bp as auth_bp
+from api.invite import bp as invite_bp
 from api.win5 import bp as win5_bp
 
 logging.basicConfig(
@@ -32,6 +33,7 @@ CORS(flask_app, resources={
 
 flask_app.register_blueprint(web_chat_bp)
 flask_app.register_blueprint(auth_bp)
+flask_app.register_blueprint(invite_bp)
 flask_app.register_blueprint(win5_bp)
 
 
