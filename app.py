@@ -8,6 +8,7 @@ from flask_cors import CORS
 
 from api.web_chat import bp as web_chat_bp
 from api.auth import bp as auth_bp
+from api.win5 import bp as win5_bp
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -24,6 +25,8 @@ CORS(flask_app, resources={
     r"/api/*": {
         "origins": [
             "http://localhost:3000",
+            "https://www.tornadeai.com",
+            "https://tornadeai.com",
         ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
@@ -32,6 +35,7 @@ CORS(flask_app, resources={
 
 flask_app.register_blueprint(web_chat_bp)
 flask_app.register_blueprint(auth_bp)
+flask_app.register_blueprint(win5_bp)
 
 
 @flask_app.route("/health", methods=["GET"])
