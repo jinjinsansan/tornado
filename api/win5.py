@@ -2,9 +2,12 @@
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, request, jsonify
 
+from api.invite import verify_auth
+from db.win5_manager import save_ticket, get_user_tickets
 from tools.executor import _get_enriched_races
 from tools.ticket_generator import generate_tickets, generate_scenarios
 from scrapers.win5 import fetch_win5_carryover
@@ -12,6 +15,17 @@ from scrapers.win5 import fetch_win5_carryover
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("win5", __name__)
+
+JST = timezone(timedelta(hours=9))
+
+
+def _next_sunday_yyyymmdd() -> str:
+    now = datetime.now(JST)
+    days_until_sunday = (6 - now.weekday()) % 7
+    if days_until_sunday == 0 and now.hour >= 18:
+        days_until_sunday = 7
+    d = now + timedelta(days=days_until_sunday)
+    return d.strftime("%Y%m%d")
 
 
 @bp.route("/api/win5/races", methods=["GET"])
@@ -71,6 +85,36 @@ def gen_scenarios():
 
     result = generate_scenarios(races, budget=body.get("budget", 5000))
     return jsonify(result)
+
+
+@bp.route("/api/win5/tickets/save", methods=["POST"])
+def save_my_ticket():
+    payload = verify_auth()
+    if not payload:
+        return jsonify({"error": "unauthorized"}), 401
+
+    body = request.get_json(silent=True) or {}
+    ticket = body.get("ticket") or {}
+    date = body.get("date") or _next_sunday_yyyymmdd()
+
+    if not isinstance(ticket, dict) or not ticket.get("tickets"):
+        return jsonify({"error": "ticket required"}), 400
+
+    user_id = payload["uid"]
+    saved = save_ticket(user_id=user_id, date=date, ticket_data=ticket)
+    return jsonify(saved)
+
+
+@bp.route("/api/win5/tickets/my", methods=["GET"])
+def list_my_tickets():
+    payload = verify_auth()
+    if not payload:
+        return jsonify({"error": "unauthorized"}), 401
+
+    date = request.args.get("date", "").strip()
+    user_id = payload["uid"]
+    items = get_user_tickets(user_id=user_id, date=date)
+    return jsonify({"tickets": items, "count": len(items)})
 
 
 @bp.route("/api/win5/carryover", methods=["GET"])

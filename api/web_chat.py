@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("web_chat", __name__)
 
 _sessions: dict[str, dict] = {}
-_redis = get_redis()
 _SESSION_TTL = 6 * 3600
 _SESSION_PREFIX = "tornado:session:"
 
@@ -29,16 +28,18 @@ def _session_key(sid: str) -> str:
 
 
 def _load_session(sid: str) -> dict | None:
-    if _redis:
-        raw = _redis.get(_session_key(sid))
+    r = get_redis()
+    if r:
+        raw = r.get(_session_key(sid))
         if raw:
             return json.loads(raw)
     return _sessions.get(sid)
 
 
 def _save_session(sid: str, session: dict):
-    if _redis:
-        _redis.setex(
+    r = get_redis()
+    if r:
+        r.setex(
             _session_key(sid), _SESSION_TTL,
             json.dumps(session, ensure_ascii=False, default=str),
         )

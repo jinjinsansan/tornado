@@ -7,7 +7,11 @@ load_dotenv(".env.local")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5")
-DLOGIC_API_URL = os.getenv("DLOGIC_API_URL", "http://localhost:8000")
+DLOGIC_DATA_API_URL = os.getenv("DLOGIC_DATA_API_URL", "http://localhost:5000")
+DLOGIC_PREDICTION_API_URL = os.getenv(
+    "DLOGIC_PREDICTION_API_URL",
+    os.getenv("DLOGIC_API_URL", "http://localhost:8000"),
+)
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_LOGIN_CHANNEL_ID = os.getenv("LINE_LOGIN_CHANNEL_ID", "")

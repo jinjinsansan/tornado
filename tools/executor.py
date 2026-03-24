@@ -9,8 +9,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from config import DLOGIC_API_URL, WIN5_PRICE
-from scrapers.win5 import fetch_win5_races, fetch_win5_carryover
+from config import DLOGIC_DATA_API_URL, DLOGIC_PREDICTION_API_URL, WIN5_PRICE
+from scrapers.win5 import fetch_win5_races, fetch_win5_carryover, fetch_race_entries
 from tools.volatility import calculate_volatility
 from tools.ticket_generator import generate_tickets, generate_scenarios
 
@@ -67,14 +67,20 @@ def execute_tool(tool_name: str, tool_input: dict, context: dict | None = None) 
 
 def _fetch_entries(race_id: str) -> dict | None:
     """Fetch race entries from Dlogic backend data API."""
+    # 1) Try Dlogic data API (preferred when available)
     try:
-        url = f"{DLOGIC_API_URL}/api/data/entries/{race_id}?type=jra"
+        url = f"{DLOGIC_DATA_API_URL}/api/data/entries/{race_id}?type=jra"
         resp = _session.get(url, timeout=30)
         if resp.status_code == 200:
-            return resp.json()
+            data = resp.json()
+            if isinstance(data, dict) and data.get("error"):
+                return None
+            return data
     except Exception as e:
         logger.warning(f"Entries fetch failed for {race_id}: {e}")
-    return None
+
+    # 2) Fallback: scrape race card directly
+    return fetch_race_entries(race_id)
 
 
 def _fetch_predictions(race_id: str, entries: dict) -> dict | None:
@@ -90,9 +96,10 @@ def _fetch_predictions(race_id: str, entries: dict) -> dict | None:
             "race_number": entries.get("race_number", 0),
             "distance": entries.get("distance", ""),
             "track_condition": entries.get("track_condition", "良"),
+            "odds": entries.get("odds", None),
         }
         resp = _session.post(
-            f"{DLOGIC_API_URL}/api/v2/predictions/newspaper",
+            f"{DLOGIC_PREDICTION_API_URL}/api/v2/predictions/newspaper",
             json=payload, timeout=60,
         )
         if resp.status_code == 200:
@@ -183,10 +190,10 @@ def _get_enriched_races() -> list[dict]:
         race_id = race["race_id"]
 
         # Fetch entries
-        entries = _fetch_entries(race_id)
+        entries = _fetch_entries(race_id) or fetch_race_entries(race_id)
         if not entries:
             logger.warning(f"No entries for {race_id}")
-            enriched.append({**race, "horses": [], "volatility_rank": 3})
+            enriched.append({**race, "horses": [], "field_size": 0, "distance": "", "volatility_rank": 3})
             continue
 
         # Fetch predictions

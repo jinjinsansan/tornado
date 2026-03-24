@@ -26,7 +26,13 @@ def get_redis():
     if not url or redis is None:
         return None
     try:
-        _client = redis.Redis.from_url(url, decode_responses=True)
+        _client = redis.Redis.from_url(
+            url,
+            decode_responses=True,
+            socket_timeout=1,
+            socket_connect_timeout=1,
+            retry_on_timeout=False,
+        )
         _client.ping()
         logger.info("Redis client initialized")
         return _client

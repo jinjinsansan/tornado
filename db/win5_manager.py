@@ -105,7 +105,8 @@ def save_ticket(user_id: str, date: str, ticket_data: dict) -> dict:
         "user_id": user_id,
         "date": date,
         "budget": ticket_data.get("investment", 0),
-        "target_payout": ticket_data.get("estimated_payout_range", {}).get("max", 0),
+        "target_payout": ticket_data.get("target_payout")
+        or ticket_data.get("estimated_payout_range", {}).get("max", 0),
         "risk_level": ticket_data.get("risk_level", "balanced"),
         "ticket_data": ticket_data.get("tickets", {}),
         "total_combinations": ticket_data.get("total_combinations", 0),

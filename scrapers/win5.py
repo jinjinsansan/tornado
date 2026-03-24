@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 WIN5_URL = "https://race.netkeiba.com/top/win5.html"
+RACE_CARD_URL = "https://race.netkeiba.com/race/shutuba.html?race_id={race_id}"
 
 
 def fetch_win5_races(date: str = "") -> list[dict]:
@@ -123,3 +124,105 @@ def fetch_win5_carryover() -> dict:
     except Exception as e:
         logger.error(f"Carryover fetch failed: {e}")
         return {"carryover": 0, "has_carryover": False}
+
+
+def fetch_race_entries(race_id: str) -> dict | None:
+    """Fetch race entries (horse list) from netkeiba shutuba page.
+
+    Returns an entries dict compatible with the Dlogic data API shape used by this project.
+    """
+    url = RACE_CARD_URL.format(race_id=race_id)
+    try:
+        resp = requests.get(url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        resp.encoding = "euc-jp"
+        soup = BeautifulSoup(resp.text, "lxml")
+    except Exception as e:
+        logger.warning(f"Race card fetch failed: {race_id}: {e}")
+        return None
+
+    entries = []
+    horses = []
+    horse_numbers = []
+    odds_list: list[float] = []
+
+    for tr in soup.select("table.Shutuba_Table tr.HorseList"):
+        # netkeiba may not embed umaban in the static HTML; tr id often contains it (e.g. id="tr_13")
+        tr_id = tr.get("id", "")
+        m = re.match(r"tr_(\d+)$", tr_id)
+        if not m:
+            continue
+        horse_number = int(m.group(1))
+
+        name_a = tr.select_one('td.HorseInfo a[href*="/horse/"]')
+        if not name_a:
+            continue
+        horse_name = name_a.get_text(strip=True)
+
+        waku_td = tr.select_one("td.Waku")
+        waku = int(waku_td.get_text(strip=True)) if (waku_td and waku_td.get_text(strip=True).isdigit()) else 0
+
+        # Odds might be blank ('---.-') early in the week.
+        odds_td = tr.select_one("td.Txt_R.Popular")
+        odds_text = odds_td.get_text(strip=True) if odds_td else ""
+        try:
+            odds = float(odds_text) if odds_text and odds_text != "---.-" else 0.0
+        except Exception:
+            odds = 0.0
+
+        pop_td = tr.select_one("td.Popular_Ninki")
+        pop_text = pop_td.get_text(strip=True) if pop_td else ""
+        popularity_rank = int(pop_text) if pop_text.isdigit() else 0
+
+        entry = {
+            "horse_number": horse_number,
+            "horse_name": horse_name,
+            "odds": odds,
+            "popularity_rank": popularity_rank,
+            "waku": waku,
+        }
+        entries.append(entry)
+
+    # Parse race meta
+    distance = ""
+    field_size = 0
+
+    data01 = soup.select_one(".RaceData01")
+    if data01:
+        txt = data01.get_text(" ", strip=True)
+        m = re.search(r"(芝|ダ|障)\s*(\d+)m", txt)
+        if m:
+            distance = f"{m.group(1)}{m.group(2)}m"
+
+    data02 = soup.select_one(".RaceData02")
+    if data02:
+        txt = data02.get_text(" ", strip=True)
+        m = re.search(r"(\d+)頭", txt)
+        if m:
+            field_size = int(m.group(1))
+
+    if not entries:
+        return None
+
+    # Stabilize ordering
+    entries.sort(key=lambda x: x.get("horse_number", 0))
+    for e in entries:
+        horses.append(e["horse_name"])
+        horse_numbers.append(e["horse_number"])
+        odds_list.append(e.get("odds", 0.0))
+
+    return {
+        "race_id": race_id,
+        "entries": entries,
+        "horses": horses,
+        "horse_numbers": horse_numbers,
+        "odds": odds_list,
+        "distance": distance,
+        "field_size": field_size or len(entries),
+        "track_condition": "",
+        "venue": "",
+        "race_number": 0,
+        "jockeys": [],
+        "posts": [],
+    }
