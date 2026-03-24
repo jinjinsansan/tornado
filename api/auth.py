@@ -10,16 +10,16 @@ import time
 import requests
 from flask import Blueprint, request, jsonify
 
+from config import LINE_LOGIN_CHANNEL_ID, LINE_LOGIN_CHANNEL_SECRET
 from db.supabase_client import get_client
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("auth", __name__)
 
-LINE_LOGIN_CHANNEL_ID = os.getenv("LINE_LOGIN_CHANNEL_ID", "")
-LINE_LOGIN_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CHANNEL_SECRET", "")
 WEB_AUTH_SECRET = os.getenv("WEB_AUTH_SECRET", "")
 if not WEB_AUTH_SECRET:
+    logger.warning("WEB_AUTH_SECRET not set — using random key (tokens won't persist across restarts)")
     WEB_AUTH_SECRET = os.urandom(32).hex()
 
 TOKEN_EXPIRY = 7 * 24 * 3600

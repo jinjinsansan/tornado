@@ -63,7 +63,6 @@ def get_user_plan(user_id: str) -> str:
 
     # Check if plan has expired
     if expires and plan != "free":
-        from datetime import datetime
         try:
             exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
             if exp_dt < datetime.now(timezone.utc):

@@ -15,13 +15,21 @@ LINE_LOGIN_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CHANNEL_SECRET", "")
 REDIS_URL = os.getenv("REDIS_URL", "")
 WEB_AUTH_SECRET = os.getenv("WEB_AUTH_SECRET", "")
 
+# CORS
+CORS_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,https://www.tornadeai.com,https://tornadeai.com"
+    ).split(",")
+]
+
 # Agent
 MAX_TOOL_TURNS = 4
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1500"))
 MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "8"))
 
 # WIN5
-WIN5_TICKET_PRICE = 100  # 1点100円
+WIN5_PRICE = 100  # 1点100円
 
 SYSTEM_PROMPT = """あなたは「トルネード」。WIN5専門の戦略AIだ。タメ口で話す。
 

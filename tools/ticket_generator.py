@@ -11,9 +11,9 @@ import itertools
 import logging
 import math
 
-logger = logging.getLogger(__name__)
+from config import WIN5_PRICE
 
-WIN5_PRICE = 100  # 1 ticket = 100 yen
+logger = logging.getLogger(__name__)
 
 
 def generate_tickets(

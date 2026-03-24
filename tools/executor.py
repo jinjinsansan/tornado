@@ -9,7 +9,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from config import DLOGIC_API_URL
+from config import DLOGIC_API_URL, WIN5_PRICE
 from scrapers.win5 import fetch_win5_races, fetch_win5_carryover
 from tools.volatility import calculate_volatility
 from tools.ticket_generator import generate_tickets, generate_scenarios
@@ -363,10 +363,29 @@ def _simulate_payout(params: dict) -> str:
 
 
 def _get_win5_history(params: dict) -> str:
-    """Past WIN5 results and trends — placeholder."""
+    """Past WIN5 results from Supabase."""
+    from db.win5_manager import get_recent_results
+    weeks = params.get("weeks", 10)
+    results = get_recent_results(limit=weeks)
+
+    if not results:
+        return json.dumps({
+            "results": [],
+            "message": "過去のWIN5結果データはまだ蓄積されていない。今後毎週自動で記録されていくぜ。",
+            "tip": "WIN5の平均配当は約300万円。キャリーオーバー時は1000万超えも。",
+        }, ensure_ascii=False)
+
+    formatted = []
+    for r in results:
+        formatted.append({
+            "date": r.get("date"),
+            "payout": r.get("payout", 0),
+            "carryover": r.get("carryover", 0),
+        })
+
     return json.dumps({
-        "message": "過去WIN5データは準備中。次回アップデートで対応予定。",
-        "tip": "WIN5の平均配当は約300万円。キャリーオーバー時は1000万超えも。",
+        "results": formatted,
+        "count": len(formatted),
     }, ensure_ascii=False)
 
 
@@ -388,6 +407,3 @@ def _get_carryover(params: dict) -> str:
         "has_carryover": carryover > 0,
         "strategy": strategy,
     }, ensure_ascii=False)
-
-
-WIN5_PRICE = 100

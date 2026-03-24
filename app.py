@@ -6,6 +6,7 @@ import sys
 from flask import Flask
 from flask_cors import CORS
 
+from config import CORS_ORIGINS
 from api.web_chat import bp as web_chat_bp
 from api.auth import bp as auth_bp
 from api.win5 import bp as win5_bp
@@ -23,11 +24,7 @@ flask_app.url_map.strict_slashes = False
 # CORS (frontend domain — update after domain is decided)
 CORS(flask_app, resources={
     r"/api/*": {
-        "origins": [
-            "http://localhost:3000",
-            "https://www.tornadeai.com",
-            "https://tornadeai.com",
-        ],
+        "origins": CORS_ORIGINS,
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
     }
