@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+.env.local
+.env
+data/cache/
+data/prefetch/
+logs/
+output/
+*.png
+.claude/
+.serena/
+.factory/
