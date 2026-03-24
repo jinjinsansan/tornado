@@ -61,6 +61,11 @@ def save_horse_scores(win5_race_id: str, horses: list[dict]) -> int:
     sb = get_client()
     saved = 0
 
+    try:
+        sb.table("win5_horse_scores").delete().eq("win5_race_id", win5_race_id).execute()
+    except Exception as e:
+        logger.warning(f"Failed to clear existing horse scores: {e}")
+
     for h in horses:
         row = {
             "win5_race_id": win5_race_id,

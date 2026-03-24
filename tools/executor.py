@@ -27,6 +27,63 @@ _WIN5_CACHE_TTL = 600  # 10 minutes
 
 JST = timezone(timedelta(hours=9))
 
+def _next_sunday_yyyymmdd() -> str:
+    now = datetime.now(JST)
+    days_until_sunday = (6 - now.weekday()) % 7
+    if days_until_sunday == 0 and now.hour >= 18:
+        days_until_sunday = 7
+    d = now + timedelta(days=days_until_sunday)
+    return d.strftime("%Y%m%d")
+
+
+def _get_cached_races_from_supabase(date: str) -> list[dict]:
+    try:
+        from db.win5_manager import get_win5_races as db_get_win5_races, get_horse_scores
+    except Exception:
+        return []
+
+    try:
+        races = db_get_win5_races(date)
+    except Exception:
+        return []
+
+    if len(races) != 5:
+        return []
+
+    enriched = []
+    for r in races:
+        horses = []
+        try:
+            horses = get_horse_scores(r["id"])
+        except Exception:
+            horses = []
+
+        if not horses:
+            return []
+
+        vol = calculate_volatility(horses, r.get("field_size", len(horses)) or len(horses)) if horses else {
+            "volatility_rank": r.get("volatility_rank", 3),
+            "description": "",
+            "raw_score": 50,
+            "factors": {},
+        }
+
+        enriched.append({
+            "race_order": r.get("race_order"),
+            "race_id": r.get("race_id"),
+            "venue": r.get("venue"),
+            "race_number": r.get("race_number"),
+            "race_name": r.get("race_name", ""),
+            "distance": r.get("distance", ""),
+            "field_size": r.get("field_size", len(horses)) or len(horses),
+            "horses": horses,
+            "volatility_rank": r.get("volatility_rank") or vol.get("volatility_rank", 3),
+            "volatility_detail": vol,
+        })
+
+    enriched.sort(key=lambda x: x.get("race_order", 0))
+    return enriched
+
 
 def execute_tool(tool_name: str, tool_input: dict, context: dict | None = None) -> str:
     """Execute a tool and return the result as a JSON string."""
@@ -179,6 +236,12 @@ def _get_enriched_races() -> list[dict]:
         and _win5_cache.get("races")
         and time.time() - _win5_cache.get("fetched_at", 0) < _WIN5_CACHE_TTL):
         return _win5_cache["races"]
+
+    # Prefer Supabase cache (plan-aligned)
+    cached = _get_cached_races_from_supabase(_next_sunday_yyyymmdd())
+    if cached:
+        _win5_cache = {"races": cached, "fetched_at": time.time()}
+        return cached
 
     # Fetch WIN5 target races
     raw_races = fetch_win5_races()
