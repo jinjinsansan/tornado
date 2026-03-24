@@ -11,11 +11,8 @@ import uuid
 
 from flask import Blueprint, request, Response, jsonify
 
-from agent.engine import call_claude, build_system_prompt, extract_text, get_tool_blocks
-from api.auth import verify_auth_header
-from config import MAX_TOOL_TURNS
+from agent.chat_core import run_agent
 from db.redis_client import get_redis
-from tools.executor import execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -41,19 +38,11 @@ def _load_session(sid: str) -> dict | None:
 
 def _save_session(sid: str, session: dict):
     if _redis:
-        _redis.setex(_session_key(sid), _SESSION_TTL, json.dumps(session, ensure_ascii=False, default=str))
+        _redis.setex(
+            _session_key(sid), _SESSION_TTL,
+            json.dumps(session, ensure_ascii=False, default=str),
+        )
     _sessions[sid] = session
-
-
-def _normalize_block(block):
-    if isinstance(block, dict):
-        return block
-    if hasattr(block, "type"):
-        if block.type == "text":
-            return {"type": "text", "text": block.text}
-        if block.type == "tool_use":
-            return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
-    return block
 
 
 @bp.route("/api/chat/sessions", methods=["POST"])
@@ -75,62 +64,36 @@ def chat():
     session = _load_session(sid) or {"history": []}
     history = session.get("history", [])
 
-    # Add user message
+    # Add user message to history
     history.append({"role": "user", "content": message})
 
     def generate():
         nonlocal history
+        final_text = ""
+        quick_replies = []
 
-        yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
+        for chunk in run_agent(user_message=message, history=history):
+            chunk_type = chunk.get("type")
 
-        system = build_system_prompt()
+            if chunk_type == "thinking":
+                yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
 
-        for turn in range(MAX_TOOL_TURNS):
-            response = call_claude(history, system)
+            elif chunk_type == "tool":
+                yield f"data: {json.dumps({'type': 'tool', 'name': chunk.get('name'), 'label': chunk.get('label')}, ensure_ascii=False)}\n\n"
 
-            if response.stop_reason == "end_turn":
-                text = extract_text(response)
-                history.append({
-                    "role": "assistant",
-                    "content": [_normalize_block(b) for b in response.content],
-                })
-                yield f"data: {json.dumps({'type': 'text', 'content': text}, ensure_ascii=False)}\n\n"
-                break
+            elif chunk_type == "text":
+                final_text = chunk.get("content", "")
+                yield f"data: {json.dumps({'type': 'text', 'content': final_text}, ensure_ascii=False)}\n\n"
 
-            # Tool use
-            tool_blocks = get_tool_blocks(response)
-            if not tool_blocks:
-                text = extract_text(response)
-                history.append({
-                    "role": "assistant",
-                    "content": [_normalize_block(b) for b in response.content],
-                })
-                yield f"data: {json.dumps({'type': 'text', 'content': text}, ensure_ascii=False)}\n\n"
-                break
+            elif chunk_type == "done":
+                history = chunk.get("history", history)
+                quick_replies = chunk.get("quick_replies", [])
 
-            # Execute tools
-            history.append({
-                "role": "assistant",
-                "content": [_normalize_block(b) for b in response.content],
-            })
-
-            tool_results = []
-            for tb in tool_blocks:
-                yield f"data: {json.dumps({'type': 'tool', 'name': tb.name})}\n\n"
-                result = execute_tool(tb.name, tb.input)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tb.id,
-                    "content": result,
-                })
-
-            history.append({"role": "user", "content": tool_results})
-
-        # Save session
-        session["history"] = history[-16:]  # Keep last 16 messages
+        # Save session with updated history (keep last 16 messages)
+        session["history"] = history[-16:]
         _save_session(sid, session)
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'session_id': sid, 'quick_replies': quick_replies}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return Response(generate(), mimetype="text/event-stream")
