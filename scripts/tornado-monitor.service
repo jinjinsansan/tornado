@@ -1,0 +1,10 @@
+[Unit]
+Description=TornadoAI hourly monitor (Telegram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dlogic/tornado
+EnvironmentFile=/opt/dlogic/tornado/.env.local
+ExecStart=/opt/dlogic/tornado/venv/bin/python3 /opt/dlogic/tornado/scripts/monitor_health.py

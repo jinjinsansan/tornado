@@ -1,0 +1,11 @@
+[Unit]
+Description=Run TornadoAI monitor hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+Unit=tornado-monitor.service
+
+[Install]
+WantedBy=timers.target
