@@ -51,6 +51,7 @@ def get_races():
                 {
                     "horse_number": h["horse_number"],
                     "horse_name": h["horse_name"],
+                    "waku": h.get("waku", 0),
                     "odds": h.get("odds", 0),
                     "ai_win_prob": h.get("ai_win_prob", 0),
                     "value_score": h.get("value_score", 1),

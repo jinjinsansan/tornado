@@ -197,6 +197,7 @@ def _build_horse_data(entries: dict, predictions: dict | None) -> list[dict]:
         num = h.get("horse_number", 0)
         odds = h.get("odds", 0) or 0
         pop = h.get("popularity", 0) or h.get("popularity_rank", 0) or 0
+        waku = h.get("waku", 0) or h.get("post", 0) or 0
 
         # AI score: average inverse rank across engines
         ranks = rank_map.get(num, {})
@@ -216,6 +217,7 @@ def _build_horse_data(entries: dict, predictions: dict | None) -> list[dict]:
         result.append({
             "horse_number": num,
             "horse_name": h.get("horse_name", ""),
+            "waku": int(waku) if isinstance(waku, (int, float, str)) and str(waku).isdigit() else 0,
             "ai_win_prob": round(ai_score, 4),
             "market_prob": round(market_prob, 4),
             "odds": odds,
