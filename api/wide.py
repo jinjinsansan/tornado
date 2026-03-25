@@ -7,6 +7,10 @@ from api.invite import verify_auth
 from scrapers.race_list import fetch_race_list, pick_default_race_date
 from scrapers.wide_odds import fetch_wide_odds_pairs
 from tools.executor import _fetch_entries, _fetch_predictions, _build_horse_data
+from config import DLOGIC_DATA_API_URL
+
+import time
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +18,9 @@ bp = Blueprint("wide", __name__)
 
 JST = timezone(timedelta(hours=9))
 WIN5_PRICE = 100
+
+_ready_cache: dict[str, dict] = {}  # date -> {"checked_at": float, "ready": bool, "ready_race_id": str}
+_READY_TTL = 300
 
 
 def _today_yyyymmdd() -> str:
@@ -29,6 +36,47 @@ def _place_prob_from_win(ai_win_prob: float) -> float:
         p = 0.0
     return max(0.01, min(0.9, p * 3.0))
 
+def _fetch_entries_dlogic_only(race_id: str) -> dict | None:
+    """Use Dlogic prefetch data only (no scraping fallback)."""
+    try:
+        url = f"{DLOGIC_DATA_API_URL}/api/data/entries/{race_id}?type=jra"
+        resp = requests.get(url, timeout=20)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if isinstance(data, dict) and data.get("error"):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _check_prefetch_ready(date: str, races: list[dict]) -> tuple[bool, str | None]:
+    """Check if the server has prefetched data for this date."""
+    now = time.time()
+    cached = _ready_cache.get(date)
+    if cached and now - float(cached.get("checked_at") or 0) < _READY_TTL:
+        return bool(cached.get("ready")), cached.get("ready_race_id")
+
+    sample_ids = []
+    for r in races[:8]:
+        rid = str(r.get("race_id") or "")
+        if rid.isdigit():
+            sample_ids.append(rid)
+        if len(sample_ids) >= 3:
+            break
+
+    ready = False
+    ready_race_id = None
+    for rid in sample_ids:
+        if _fetch_entries_dlogic_only(rid):
+            ready = True
+            ready_race_id = rid
+            break
+
+    _ready_cache[date] = {"checked_at": now, "ready": ready, "ready_race_id": ready_race_id or ""}
+    return ready, ready_race_id
+
 
 @bp.route("/api/wide/races", methods=["GET"])
 def list_races():
@@ -41,20 +89,21 @@ def list_races():
     if not date:
         date = pick_default_race_date(datetime.now(JST))
 
-    # Prefetch is assumed available from the previous day 10:30 JST.
+    races = fetch_race_list(date)
+    ready, ready_race_id = _check_prefetch_ready(date, races)
+
+    # Show ETA as a hint, but actual gating is by prefetch existence.
     try:
         d = datetime.strptime(date, "%Y%m%d").replace(tzinfo=JST)
         ready_at = (d - timedelta(days=1)).replace(hour=10, minute=30, second=0, microsecond=0)
-        ready = datetime.now(JST) >= ready_at
     except Exception:
         ready_at = None
-        ready = True
 
-    races = fetch_race_list(date)
     return jsonify({
         "date": date,
         "ready": bool(ready),
         "ready_at": ready_at.isoformat() if ready_at else None,
+        "ready_race_id": ready_race_id,
         "races": races,
         "count": len(races),
     })
@@ -78,9 +127,9 @@ def generate_wide():
     if target_payout <= 0:
         return jsonify({"error": "target_payout required"}), 400
 
-    entries = _fetch_entries(race_id)
+    entries = _fetch_entries_dlogic_only(race_id)
     if not entries:
-        return jsonify({"error": "レース情報の取得に失敗しました"}), 500
+        return jsonify({"error": "データ準備中です（前日10:30以降に利用可能）"}), 400
 
     preds = _fetch_predictions(race_id, entries)
     horses = _build_horse_data(entries, preds)
