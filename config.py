@@ -3,7 +3,8 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv(".env.local")
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_BASE_DIR, ".env.local"))
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5")
@@ -16,6 +17,10 @@ LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_LOGIN_CHANNEL_ID = os.getenv("LINE_LOGIN_CHANNEL_ID", "")
 LINE_LOGIN_CHANNEL_SECRET = os.getenv("LINE_LOGIN_CHANNEL_SECRET", "")
+LINE_LOGIN_REDIRECT_URI = os.getenv(
+    "LINE_LOGIN_REDIRECT_URI",
+    "https://www.tornadeai.com/line/callback",
+)
 REDIS_URL = os.getenv("REDIS_URL", "")
 WEB_AUTH_SECRET = os.getenv("WEB_AUTH_SECRET", "")
 

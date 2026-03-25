@@ -21,6 +21,21 @@ CREATE TABLE invite_codes (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 初回アクティベーション（販売会社が送るURL + PIN）
+CREATE TABLE activation_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash TEXT UNIQUE NOT NULL,
+    pin_hash TEXT NOT NULL,
+    status TEXT DEFAULT 'issued', -- issued/used/locked
+    attempts INT DEFAULT 0,
+    locked_at TIMESTAMPTZ,
+    used_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    used_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- WIN5対象レース（毎週更新）
 CREATE TABLE win5_races (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -95,10 +110,12 @@ CREATE INDEX idx_win5_races_date ON win5_races(date);
 CREATE INDEX idx_win5_horse_scores_race ON win5_horse_scores(win5_race_id);
 CREATE INDEX idx_win5_tickets_user ON win5_tickets(user_id, date);
 CREATE INDEX idx_win5_user_history_user ON win5_user_history(user_id);
+CREATE INDEX idx_activation_links_expires ON activation_links(expires_at);
 
 -- RLS有効化
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invite_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE activation_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE win5_races ENABLE ROW LEVEL SECURITY;
 ALTER TABLE win5_horse_scores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE win5_tickets ENABLE ROW LEVEL SECURITY;
@@ -108,6 +125,7 @@ ALTER TABLE win5_user_history ENABLE ROW LEVEL SECURITY;
 -- サービスロールは全テーブルフルアクセス
 CREATE POLICY "Service role full access" ON users FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Service role full access" ON invite_codes FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Service role full access" ON activation_links FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Service role full access" ON win5_races FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Service role full access" ON win5_horse_scores FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Service role full access" ON win5_tickets FOR ALL USING (true) WITH CHECK (true);
