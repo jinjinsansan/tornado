@@ -170,7 +170,7 @@ def create_ticket():
         f"user: <code>{uid_short}</code>\n"
         f"page: <code>{page or '-'}</code>\n"
         f"\n<b>内容</b>\n{message}\n"
-        f"\n返信: <code>/resolve {tid} 返信内容...</code>"
+        f"\n<b>返信コマンド</b>\n/resolve {tid} 返信内容..."
     )
     sent = _telegram_send(tg_text)
 
