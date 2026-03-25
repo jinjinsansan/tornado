@@ -11,6 +11,8 @@ from urllib3.util.retry import Retry
 
 from config import DLOGIC_DATA_API_URL, DLOGIC_PREDICTION_API_URL, WIN5_PRICE
 from scrapers.win5 import fetch_win5_races, fetch_win5_carryover, fetch_race_entries
+from scrapers.race_list import fetch_race_list, pick_default_race_date
+from scrapers.wide_odds import fetch_wide_odds_pairs
 from tools.volatility import calculate_volatility
 from tools.ticket_generator import generate_tickets, generate_scenarios
 
@@ -106,6 +108,10 @@ def execute_tool(tool_name: str, tool_input: dict, context: dict | None = None) 
             result = _get_win5_history(tool_input)
         elif tool_name == "get_carryover":
             result = _get_carryover(tool_input)
+        elif tool_name == "get_wide_races":
+            result = _get_wide_races(tool_input)
+        elif tool_name == "generate_wide":
+            result = _generate_wide(tool_input)
         else:
             result = json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
 
@@ -138,6 +144,21 @@ def _fetch_entries(race_id: str) -> dict | None:
 
     # 2) Fallback: scrape race card directly
     return fetch_race_entries(race_id)
+
+
+def _fetch_entries_dlogic_only(race_id: str) -> dict | None:
+    """Use prefetched entries only (no scraping fallback)."""
+    try:
+        url = f"{DLOGIC_DATA_API_URL}/api/data/entries/{race_id}?type=jra"
+        resp = _session.get(url, timeout=30)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if isinstance(data, dict) and data.get("error"):
+            return None
+        return data
+    except Exception:
+        return None
 
 
 def _fetch_predictions(race_id: str, entries: dict) -> dict | None:
@@ -479,4 +500,134 @@ def _get_carryover(params: dict) -> str:
         "carryover_display": f"{carryover:,}円" if carryover > 0 else "0円",
         "has_carryover": carryover > 0,
         "strategy": strategy,
+    }, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Wide mode tools (single-race)
+# ---------------------------------------------------------------------------
+
+def _get_wide_races(params: dict) -> str:
+    date = pick_default_race_date(datetime.now(JST))
+    races = fetch_race_list(date)
+
+    ready = False
+    for r in races[:8]:
+        rid = str(r.get("race_id") or "")
+        if not rid.isdigit():
+            continue
+        if _fetch_entries_dlogic_only(rid):
+            ready = True
+            break
+
+    out = []
+    for r in races:
+        out.append({
+            "venue": r.get("venue", ""),
+            "race_number": r.get("race_number", 0),
+            "race_name": r.get("race_name", ""),
+            "start_time": r.get("start_time", ""),
+            "distance": r.get("distance", ""),
+        })
+
+    return json.dumps({"date": date, "ready": ready, "races": out, "count": len(out)}, ensure_ascii=False)
+
+
+def _place_prob_from_win(ai_win_prob: float) -> float:
+    try:
+        p = float(ai_win_prob or 0)
+    except Exception:
+        p = 0.0
+    return max(0.01, min(0.9, p * 3.0))
+
+
+def _generate_wide(params: dict) -> str:
+    venue = str(params.get("venue") or "").strip()
+    race_number = int(params.get("race_number") or 0)
+    budget = int(params.get("budget") or 0)
+    target_payout = int(params.get("target_payout") or 0)
+
+    if not venue or race_number <= 0:
+        return json.dumps({"error": "会場とレース番号が必要です（例: 中山11R）"}, ensure_ascii=False)
+    if budget < 100:
+        return json.dumps({"error": "予算は100円以上で指定してください"}, ensure_ascii=False)
+    if target_payout <= 0:
+        return json.dumps({"error": "欲しい払戻額（円）を指定してください"}, ensure_ascii=False)
+
+    date = pick_default_race_date(datetime.now(JST))
+    races = fetch_race_list(date)
+    target = next((r for r in races if r.get("venue") == venue and int(r.get("race_number") or 0) == race_number), None)
+    if not target:
+        return json.dumps({"error": f"{venue}{race_number}R が見つかりませんでした。『ワイド レース一覧』で確認してください。"}, ensure_ascii=False)
+
+    race_id = str(target.get("race_id") or "")
+    entries = _fetch_entries_dlogic_only(race_id)
+    if not entries:
+        return json.dumps({"error": "データ準備中です（前日10:30以降に利用可能）"}, ensure_ascii=False)
+
+    preds = _fetch_predictions(race_id, entries)
+    horses = _build_horse_data(entries, preds)
+    horses = [h for h in horses if h.get("horse_number") and h.get("horse_name")]
+    if len(horses) < 6:
+        return json.dumps({"error": "出走馬データが不足しています"}, ensure_ascii=False)
+
+    horse_by_no = {int(h["horse_number"]): h for h in horses if str(h.get("horse_number")).isdigit()}
+    wide_pairs = fetch_wide_odds_pairs(race_id)
+    if not wide_pairs:
+        return json.dumps({"error": "ワイドオッズがまだ取得できません（公開前の可能性があります）"}, ensure_ascii=False)
+
+    target_mult = target_payout / float(budget)
+    scored = []
+    for (a, b), odds in wide_pairs.items():
+        ha = horse_by_no.get(a)
+        hb = horse_by_no.get(b)
+        if not ha or not hb:
+            continue
+
+        lo = float(odds.get("min") or 0)
+        hi = float(odds.get("max") or lo)
+        if lo <= 0:
+            continue
+        if hi <= 0:
+            hi = lo
+        mult_mid = ((lo + hi) / 2.0)
+
+        pa = _place_prob_from_win(ha.get("ai_win_prob", 0))
+        pb = _place_prob_from_win(hb.get("ai_win_prob", 0))
+        hit_p = max(0.0001, min(0.95, pa * pb * 0.9))
+
+        closeness = 1.0 / (1.0 + abs(mult_mid - target_mult))
+        score = hit_p * closeness
+
+        payout_min = int(round(lo * (budget / 100)))
+        payout_max = int(round(hi * (budget / 100)))
+
+        scored.append({
+            "pair": [
+                {"horse_number": a, "horse_name": ha.get("horse_name", "")},
+                {"horse_number": b, "horse_name": hb.get("horse_name", "")},
+            ],
+            "wide_odds": {"min": round(lo, 1), "max": round(hi, 1)},
+            "hit_probability_est": round(hit_p, 4),
+            "target_multiplier": round(target_mult, 3),
+            "multiplier_mid": round(mult_mid, 3),
+            "expected_payout_range": {"min": payout_min, "max": payout_max},
+            "score": round(score, 6),
+        })
+
+    scored.sort(key=lambda x: x.get("score", 0), reverse=True)
+    if not scored:
+        return json.dumps({"error": "ワイド候補を作れませんでした"}, ensure_ascii=False)
+
+    return json.dumps({
+        "date": date,
+        "venue": venue,
+        "race_number": race_number,
+        "race_name": target.get("race_name", ""),
+        "budget": budget,
+        "target_payout": target_payout,
+        "target_multiplier": round(target_mult, 3),
+        "recommended": scored[0],
+        "alternatives": scored[1:11],
+        "count": len(scored),
     }, ensure_ascii=False)

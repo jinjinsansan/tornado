@@ -112,4 +112,27 @@ TOOLS = [
             "required": []
         }
     },
+    {
+        "name": "get_wide_races",
+        "description": "ワイドモード用に、直近のJRA開催日の全レース一覧を取得します（会場、レース番号、レース名、発走時刻、距離）。ワイドを作る前のレース選択に使います。",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "generate_wide",
+        "description": "指定レースのワイド買い目を、予算と目標払戻から生成します。目標倍率（=目標払戻/予算）に近く、かつ当たりやすい組み合わせを提案します。「ワイドで」「1000円で5000円欲しい」等で使います。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "venue": {"type": "string", "description": "会場名（例: 中山/阪神/中京/東京/京都/新潟/福島/小倉/札幌/函館）"},
+                "race_number": {"type": "integer", "description": "レース番号（例: 11）"},
+                "budget": {"type": "integer", "description": "予算（円）。例: 1000"},
+                "target_payout": {"type": "integer", "description": "欲しい払戻（円）。例: 5000"}
+            },
+            "required": ["venue", "race_number", "budget", "target_payout"]
+        }
+    },
 ]
