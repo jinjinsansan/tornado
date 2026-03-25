@@ -6,6 +6,7 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_user_id TEXT UNIQUE,
     display_name TEXT,
+    role TEXT DEFAULT 'member',
     plan TEXT DEFAULT 'free',
     plan_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),

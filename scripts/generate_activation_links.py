@@ -60,14 +60,24 @@ def main(count: int = 200):
     ttl_days = int(os.getenv("ACTIVATION_TTL_DAYS", "7"))
     expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
 
+    reserved = [
+        {"role": "owner", "label": "owner"},
+        {"role": "sales_admin", "label": "sales_1"},
+        {"role": "sales_admin", "label": "sales_2"},
+    ]
+
     rows = []
     out = []
-    for _ in range(count):
+    for i in range(count):
         token = generate_token()
         pin = generate_pin()
 
         th = sha256_hex(token)
         ph = pin_hash(pin)
+
+        meta = {}
+        if i < len(reserved):
+            meta = dict(reserved[i])
 
         rows.append({
             "token_hash": th,
@@ -75,7 +85,7 @@ def main(count: int = 200):
             "status": "issued",
             "attempts": 0,
             "expires_at": expires_at.isoformat(),
-            "metadata": {},
+            "metadata": meta,
         })
         out.append({
             "activation_url": f"{base_url}?t={token}",
@@ -98,6 +108,10 @@ def main(count: int = 200):
     print(f"Generated {len(out)} activation links")
     print(f"CSV saved: {csv_path}")
     print(f"Sample: {out[0]['activation_url']} PIN={out[0]['pin']}")
+    if len(out) >= 3:
+        print("Admin reserved (top 3 rows):")
+        for idx, r in enumerate(out[:3], start=1):
+            print(f"  {idx}: {r['activation_url']} PIN={r['pin']}")
 
 
 if __name__ == "__main__":

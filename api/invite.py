@@ -251,7 +251,7 @@ def line_exchange():
 
     # Returning user login
     if mode == "login":
-        res = sb.table("users").select("id, display_name, plan").eq("line_user_id", line_user_id).limit(1).execute()
+        res = sb.table("users").select("id, display_name, plan, role").eq("line_user_id", line_user_id).limit(1).execute()
         if not res.data:
             return jsonify({"error": "未アクティベーションです。購入者メールのURLから初回登録してください"}), 403
 
@@ -264,7 +264,12 @@ def line_exchange():
         token = _create_token(user["id"])
         return jsonify({
             "token": token,
-            "user": {"id": user["id"], "display_name": user.get("display_name") or display_name, "plan": user.get("plan", "")},
+            "user": {
+                "id": user["id"],
+                "display_name": user.get("display_name") or display_name,
+                "plan": user.get("plan", ""),
+                "role": user.get("role", "member"),
+            },
         })
 
     # Activation: bind activation link -> new premium user
@@ -272,7 +277,7 @@ def line_exchange():
         return jsonify({"error": "activation id missing"}), 400
 
     act_res = sb.table("activation_links") \
-        .select("id, status, locked_at, used_by, used_at, expires_at") \
+        .select("id, status, locked_at, used_by, used_at, expires_at, metadata") \
         .eq("id", activation_id) \
         .limit(1) \
         .execute()
@@ -308,9 +313,15 @@ def line_exchange():
     if existing.data:
         return jsonify({"error": "このLINEアカウントは既に登録済みです（別アクティベーションは使用できません）"}), 400
 
+    meta = act.get("metadata") if isinstance(act.get("metadata"), dict) else {}
+    role = meta.get("role") if isinstance(meta, dict) else None
+    if not isinstance(role, str) or not role:
+        role = "member"
+
     user_ins = sb.table("users").insert({
         "line_user_id": line_user_id,
         "display_name": display_name,
+        "role": role,
         "plan": "premium",
         "last_active_at": "now()",
     }).execute()
@@ -320,17 +331,22 @@ def line_exchange():
 
     user_id = user_ins.data[0]["id"]
 
+    new_meta = {}
+    if isinstance(meta, dict):
+        new_meta.update(meta)
+    new_meta["line_user_id"] = line_user_id
+
     sb.table("activation_links").update({
         "used_by": user_id,
         "used_at": "now()",
         "status": "used",
-        "metadata": {"line_user_id": line_user_id},
+        "metadata": new_meta,
     }).eq("id", activation_id).execute()
 
     token = _create_token(user_id)
     return jsonify({
         "token": token,
-        "user": {"id": user_id, "display_name": display_name, "plan": "premium"},
+        "user": {"id": user_id, "display_name": display_name, "plan": "premium", "role": role},
     })
 
 
@@ -406,7 +422,7 @@ def auth_me():
         return jsonify({"error": "unauthorized"}), 401
 
     sb = get_client()
-    user_res = sb.table("users").select("id, display_name, plan").eq("id", payload["uid"]).limit(1).execute()
+    user_res = sb.table("users").select("id, display_name, plan, role").eq("id", payload["uid"]).limit(1).execute()
     if not user_res.data:
         return jsonify({"error": "user not found"}), 404
 
@@ -415,4 +431,5 @@ def auth_me():
         "id": user["id"],
         "display_name": user["display_name"],
         "plan": user["plan"],
+        "role": user.get("role", "member"),
     })
