@@ -47,6 +47,11 @@ def get_races():
             "distance": r.get("distance", ""),
             "volatility_rank": r.get("volatility_rank", 3),
             "volatility_desc": r.get("volatility_detail", {}).get("description", ""),
+            "volatility_detail": {
+                "raw_score": r.get("volatility_detail", {}).get("raw_score", 50),
+                "factors": r.get("volatility_detail", {}).get("factors", {}),
+                "description": r.get("volatility_detail", {}).get("description", ""),
+            },
             "horses": [
                 {
                     "horse_number": h["horse_number"],
