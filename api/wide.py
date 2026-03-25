@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request
 
 from api.invite import verify_auth
-from scrapers.race_list import fetch_race_list
+from scrapers.race_list import fetch_race_list, pick_default_race_date
 from scrapers.wide_odds import fetch_wide_odds_pairs
 from tools.executor import _fetch_entries, _fetch_predictions, _build_horse_data
 
@@ -36,9 +36,28 @@ def list_races():
     if not payload:
         return jsonify({"error": "unauthorized"}), 401
 
-    date = (request.args.get("date") or "").strip() or _today_yyyymmdd()
+    # UI is "auto" (no calendar). Keep date param as an override for internal debugging.
+    date = (request.args.get("date") or "").strip()
+    if not date:
+        date = pick_default_race_date(datetime.now(JST))
+
+    # Prefetch is assumed available from the previous day 10:30 JST.
+    try:
+        d = datetime.strptime(date, "%Y%m%d").replace(tzinfo=JST)
+        ready_at = (d - timedelta(days=1)).replace(hour=10, minute=30, second=0, microsecond=0)
+        ready = datetime.now(JST) >= ready_at
+    except Exception:
+        ready_at = None
+        ready = True
+
     races = fetch_race_list(date)
-    return jsonify({"date": date, "races": races, "count": len(races)})
+    return jsonify({
+        "date": date,
+        "ready": bool(ready),
+        "ready_at": ready_at.isoformat() if ready_at else None,
+        "races": races,
+        "count": len(races),
+    })
 
 
 @bp.route("/api/wide/generate", methods=["POST"])

@@ -1,7 +1,12 @@
-"""JRA race list scraper (all races for a given date)."""
+"""JRA race list scraper (all races for a given date).
+
+Also provides helpers to pick the "current target date" automatically.
+"""
 
 import logging
 import re
+import time
+from datetime import datetime, timedelta, timezone
 
 import requests
 from bs4 import BeautifulSoup
@@ -9,9 +14,71 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 RACE_LIST_SUB_URL = "https://race.netkeiba.com/top/race_list_sub.html"
+RACE_DATE_LIST_URL = "https://race.netkeiba.com/top/race_list_get_date_list.html"
 
 _VENUES_RE = re.compile(r"(中山|阪神|中京|東京|京都|新潟|福島|小倉|札幌|函館)")
 
+JST = timezone(timedelta(hours=9))
+
+_date_cache: dict = {"fetched_at": 0.0, "ref": "", "dates": []}  # type: ignore[var-annotated]
+
+
+def _today_yyyymmdd() -> str:
+    now = datetime.now(JST)
+    return now.strftime("%Y%m%d")
+
+
+def fetch_available_race_dates(ref_date: str) -> list[str]:
+    """Fetch a small list of available race dates around ref_date.
+
+    netkeiba provides 5-ish dates (previous/next) in a tab list.
+    """
+    if not ref_date or not re.fullmatch(r"\d{8}", ref_date):
+        return []
+
+    now = time.time()
+    if _date_cache.get("ref") == ref_date and now - float(_date_cache.get("fetched_at") or 0) < 600:
+        return list(_date_cache.get("dates") or [])
+
+    try:
+        resp = requests.get(
+            RACE_DATE_LIST_URL,
+            params={"kaisai_date": ref_date, "encoding": "UTF-8"},
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        resp.encoding = "euc-jp"
+        soup = BeautifulSoup(resp.text, "lxml")
+        dates = []
+        for li in soup.select("#date_list_sub li[date]"):
+            d = (li.get("date") or "").strip()
+            if re.fullmatch(r"\d{8}", d):
+                dates.append(d)
+        dates = sorted(set(dates))
+        _date_cache.update({"fetched_at": now, "ref": ref_date, "dates": dates})
+        return dates
+    except Exception as e:
+        logger.debug(f"race date list fetch failed: {ref_date}: {e}")
+        return []
+
+
+def pick_default_race_date(now: datetime | None = None) -> str:
+    """Pick the next available race date (auto mode)."""
+    now = now or datetime.now(JST)
+    today = now.strftime("%Y%m%d")
+
+    dates = fetch_available_race_dates(today)
+    for d in dates:
+        if d >= today:
+            return d
+
+    # Fallback: probe up to 14 days ahead
+    for i in range(0, 15):
+        d = (now + timedelta(days=i)).strftime("%Y%m%d")
+        if fetch_race_list(d):
+            return d
+
+    return today
 
 def fetch_race_list(date: str) -> list[dict]:
     """Fetch all JRA races for a given date.
