@@ -281,7 +281,40 @@ def run_agent(
             return
 
     for turn in range(MAX_TOOL_TURNS):
-        response = call_claude(history, system)
+        try:
+            response = call_claude(history, system)
+        except Exception as e:
+            err_msg = str(e)
+            if "tool_result" in err_msg or "tool_use_id" in err_msg:
+                logger.warning("History corrupted (tool_result mismatch), recovering: %s", err_msg[:200])
+                # Keep only the latest plain-text user message
+                last_user = None
+                for m in reversed(history):
+                    if m.get("role") == "user" and isinstance(m.get("content"), str):
+                        last_user = m
+                        break
+                history = [last_user] if last_user else [{"role": "user", "content": user_message}]
+                try:
+                    response = call_claude(history, system)
+                except Exception:
+                    text = "会話履歴に不整合が発生しました。ページを再読み込みして新しい会話を始めてください。"
+                    yield {"type": "text", "content": text}
+                    yield {
+                        "type": "done", "text": text, "tools_used": tools_used,
+                        "quick_replies": get_quick_replies(tools_used),
+                        "history": history, "ticket": last_ticket, "scenarios": last_scenarios,
+                    }
+                    return
+            else:
+                logger.exception("Claude API call failed")
+                text = "AIサービスでエラーが発生しました。しばらくしてからもう一度お試しください。"
+                yield {"type": "text", "content": text}
+                yield {
+                    "type": "done", "text": text, "tools_used": tools_used,
+                    "quick_replies": get_quick_replies(tools_used),
+                    "history": history, "ticket": last_ticket, "scenarios": last_scenarios,
+                }
+                return
 
         # End turn — no more tool calls
         if response.stop_reason == "end_turn":

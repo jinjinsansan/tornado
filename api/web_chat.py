@@ -46,6 +46,29 @@ def _save_session(sid: str, session: dict):
     _sessions[sid] = session
 
 
+def _sanitize_history(history: list[dict]) -> list[dict]:
+    """Ensure history starts with a plain-text user message.
+
+    After truncation with [-N:], the first message may be an orphaned
+    tool_result (whose corresponding tool_use was cut off) or a stray
+    assistant message.  Claude API rejects these with 400:
+        "unexpected tool_use_id found in tool_result blocks"
+    Strip leading messages until we reach a regular user text message.
+    """
+    for i, msg in enumerate(history):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            return history[i:]
+        if isinstance(content, list):
+            if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+                continue
+            return history[i:]
+        return history[i:]
+    return []
+
+
 @bp.route("/api/chat/sessions", methods=["POST"])
 def create_session():
     sid = str(uuid.uuid4())[:12]
@@ -63,7 +86,7 @@ def chat():
         return jsonify({"error": "session_id and message required"}), 400
 
     session = _load_session(sid) or {"history": []}
-    history = session.get("history", [])
+    history = _sanitize_history(session.get("history", []))
 
     # Add user message to history
     history.append({"role": "user", "content": message})
@@ -94,8 +117,8 @@ def chat():
                 ticket = chunk.get("ticket")
                 scenarios = chunk.get("scenarios")
 
-        # Save session with updated history (keep last 16 messages)
-        session["history"] = history[-16:]
+        # Save session with updated history (keep last 16 messages, sanitized)
+        session["history"] = _sanitize_history(history[-16:])
         _save_session(sid, session)
 
         yield f"data: {json.dumps({'type': 'done', 'session_id': sid, 'quick_replies': quick_replies, 'ticket': ticket, 'scenarios': scenarios}, ensure_ascii=False)}\n\n"
